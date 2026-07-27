@@ -3,6 +3,7 @@ name: Build TLM Superb Warfare FE fix
 on:
   push:
     branches:
+      - main
       - fix/tlm-sbw-fe-reload
   pull_request:
     branches:
