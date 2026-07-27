@@ -1,0 +1,72 @@
+name: Build TLM Superb Warfare FE fix
+
+on:
+  push:
+    branches:
+      - fix/tlm-sbw-fe-reload
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+
+      - name: Checkout Touhou Little Maid
+        uses: actions/checkout@v4
+        with:
+          repository: TartaricAcid/TouhouLittleMaid
+          ref: 1.21
+          path: tlm
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: tlm/**/*.gradle*
+
+      - name: Download Superb Warfare 0.8.7.1 dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tlm/libs
+          url=$(curl --fail --silent --show-error \
+            https://api.modrinth.com/v2/version/YO614VcD \
+            | jq -r '.files[] | select(.primary == true) | .url')
+          test -n "$url"
+          curl --fail --location --retry 4 --output \
+            tlm/libs/superbwarfare-1.21.1-0.8.7.1.jar "$url"
+
+      - name: Apply FE reload patch
+        run: python3 tools/patch_tlm_sbw_fe_reload.py
+
+      - name: Build patched mod
+        working-directory: tlm
+        run: |
+          chmod +x gradlew
+          ./gradlew shadowJar --no-daemon --stacktrace
+
+      - name: Collect distributable JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find tlm/build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-dev.jar' -print -exec cp {} dist/ \;
+          test "$(find dist -type f -name '*.jar' | wc -l)" -gt 0
+          sha256sum dist/*.jar | tee dist/SHA256SUMS.txt
+
+      - name: Upload patched JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: touhoulittlemaid-sbw-fe-reload-fix
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
